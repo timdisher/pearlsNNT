@@ -21,7 +21,7 @@ devtools::load_all()
 
 ### How many will it take?
 
-```{r ft.width = 10}
+```{r ft.width = 10, dev = "svglite"}
 
 cols <- c(
   "#0094b6", # Light blue
