@@ -1,0 +1,185 @@
+---
+title: "Challenges of Numbers Needed to Treat in HEOR"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    theme: readable
+    css: "style.css"
+    social: menu
+    source: embed
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(svglite)
+library(dplyr)
+devtools::load_all()
+```
+
+
+### How many will it take?
+
+```{r ft.width = 10}
+
+cols <- c(
+  "#0094b6", # Light blue
+  "#375180", # Dark blue
+  "#ffce3f" # sunset
+)
+
+data.frame(p = c(30, 40),
+           x = c("Placebo","Treatment")) %>%
+  ggplot2::ggplot(ggplot2::aes(x = x, y = p, fill = x)) +
+  ggplot2::geom_col() +
+  ggplot2::scale_fill_manual(values = cols[2:3]) +
+  ggplot2::coord_cartesian(ylim = c(0, 80)) +
+  ggplot2::annotate(geom = "text", x = "Placebo", y = 50, label = "30%") +
+  ggplot2::annotate(geom = "text", x = "Treatment", y = 50, label = "40%") +
+  ggplot2::annotate(geom = "segment", x = "Placebo", xend = "Treatment", y = 60, yend = 60) +
+  ggplot2::annotate(geom = "segment", x = "Placebo", xend = "Placebo",
+                    y = 52, yend = 60) +
+  ggplot2::annotate(geom = "segment", x = "Treatment", xend = "Treatment",
+                    y = 52, yend = 60) +
+  ggplot2::annotate(geom = "text", x = 1.5, y = 69, label = "Risk Difference (RD) = 0.1\nNNT = 1 / RD = 10\nWe have to treat 10 patients for one to benefit") +
+  ggplot2::labs(title = stringr::str_wrap("Number Needed to Treat (NNT) provides a simple, clinically relevant summary of the observed effect in a given trial", 70),
+                x = ggplot2::element_blank(),
+                y = "Percent with event") +
+  ggplot2::theme_minimal(base_size = 10) +
+  ggplot2::theme(legend.position = "none")
+  
+
+```
+
+------
+
+The Number Needed to Treat is a concept promoted by some clinicians to help
+understand the clinical significance of treatment effects. Since NNTs are
+calculated based on absolute measures of effect, they can provide important
+context since sometimes a small relative risk can be a big difference and a
+large relative risk can be a small one
+
+
+### Which effect is portable?
+
+
+```{r, fig.width= 9,fig.height = 7, dev = "svglite"}
+
+p <- seq(from = 0.05, to = 0.5, by = 0.05)
+
+mod <- c("rr","or","rd")
+
+est <- function(p, te, mod){
+  if(mod == "rr") out <- p * te
+  if(mod == "rd") out <- p + te
+  if(mod == "or") out <- plogis(qlogis(p) + log(te))
+  
+  return(out)
+} 
+
+p_risks <- function(mod, te){
+  tibble::tibble(
+  p1 = p,
+  p2 = est(p1, te, mod),
+  rr = p2/p1,
+  rd = p2 - p1,
+  or = exp(qlogis(p2) - qlogis(p1))
+) %>%
+  tidyr::pivot_longer(names_to = "effect",
+                      values_to = "estimate",
+                      cols = -c(p1,p2)) %>%
+  dplyr::mutate(mod = mod)
+
+}
+
+
+purrr::map2_df(c("rr","or","rd"), c(2, 5, 0.2), p_risks) %>%
+  dplyr::filter(effect == "rd") %>%
+  dplyr::mutate(p1 = round(p1*100,2)) %>%
+  ggplot2::ggplot(ggplot2::aes(x = p1, y = estimate, color = mod)) +
+  ggplot2::geom_smooth(se = FALSE) +
+  ggplot2::theme_minimal(base_size = 16) +
+  ggplot2::scale_color_manual(values= cols,
+                              breaks = c("or", "rr", "rd")) +
+  ggplot2::labs(
+    title = "Risk difference varies depending on whether <span style = 'color: #0094b6;'><b>odds ratios</b></span>, <span style = 'color: #375180;'><b>relative risks</b></span> or <span style = 'color: #ffce3f;'><b>risk differences</b></span> are assumed to be constant across settings",
+    x = "Baseline Risk (%)",
+    y = "Risk Difference"
+  ) +
+  ggplot2::theme(
+    plot.title = ggtext::element_textbox_simple(height = grid::unit(0.3, "npc")),
+    legend.position = "none"
+  ) +
+  ggplot2::annotate(
+    geom = "label", x = 10, y = 0.35, label = "Constant OR of 5",
+    fill = cols[[1]], colour = "white"
+  ) +
+  ggplot2::annotate(
+    geom = "label", x = 18, y = 0.25, label = "Constant RR of 2",
+    fill = cols[[2]], colour = "white"
+  ) +
+  ggplot2::annotate(
+    geom = "label", x = 30, y = 0.17, label = "Constant RD of 0.2",
+    fill = cols[[3]], colour = "black"
+  )
+```
+
+------------------------------------------------------------------------
+
+When interpreting any given study and the comparisons within it, NNTs can
+be a standalone summary of the observed effect. Since
+trial populations might differ from practice in any given location we need to
+make an assumption about the scale on which treatment effects are expected to
+be portable. For binary outcomes common choices are the odds ratio, the
+relative risk, or risk difference. It's not likely that any of these are strictly
+true but one argument in favour of odds ratios is that they are the only of the
+three that can have a constant effect across all possible baseline risk. 
+
+
+### Implications for Meta-Analyses and Guidelines
+
+```{r dev = "svglite", fig.width = 9}
+
+or <- 1/3
+p <- seq(from = 0.01, to = 0.25, by = 0.05)
+
+rd_or <- plogis(qlogis(p) + log(or)) - p
+
+tibble::tibble(
+  p = glue::glue("{round(p*100,2)}%"),
+  or,
+  rd_or,
+  nnt_or = abs(1/rd_or)
+  ) %>%
+  dplyr::mutate_at(dplyr::vars(-p),round,2) %>%
+  flextable::flextable() %>%
+  flextable::fontsize(size = 20, part = "all") %>%
+  flextable::set_table_properties(layout = "autofit", width = 0.8) %>%
+  flextable::set_header_labels(
+    p = "Baseline\nRisk",
+    or = "Odds\nRatio",
+    rd_or = "Risk\nDifference",
+    nnt_or = "Number Needed\nto Treat"
+  ) %>%
+  flextable::theme_zebra(
+    odd_body = cols[[3]],
+    odd_head = cols[[2]]
+  ) %>%
+  flextable::align(align = "center", part = "all") %>%
+  flextable::color(color = "white", part = "header") %>%
+  flextable::border_inner_v(border = officer::fp_border(color = cols[[2]], width = 2))
+  
+
+```
+
+------------------------------------------------------------------------
+
+It is tempting to summarize ITCs in terms of NNTs to help guide interpretations
+about the clinical significance of differences between therapies. For example,
+recommendations based on absolute outcomes/interpretation of their relevance is
+incorporated in GRADE evidence summaries and used to help guideline panels. Unfortunately this can present issues when baseline risk varies across studies or
+locations since the same treatment effect could make two comparators appear to
+be virtually identical or drastically different in terms of NNTs.
+
+
